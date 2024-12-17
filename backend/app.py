@@ -14,31 +14,23 @@ import time
 import os
 import random
 import string
+from services.mqtt_service import MQTTService
+import logging
 
 app = Flask(__name__)
 CORS(app)
 
 # Configuration MQTT
-MQTT_BROKER_HOST = "bee321a450aa496ca69c29cfcad112a5.s1.eu.hivemq.cloud"
-MQTT_BROKER_PORT = 8883
-MQTT_USERNAME = "salwaroot"
-MQTT_PASSWORD = "Emploi@2024"
-MQTT_TOPIC = "ppe/detections"
+MQTT_CONFIG = {
+    'broker_host': "bee321a450aa496ca69c29cfcad112a5.s1.eu.hivemq.cloud",
+    'broker_port': 8883,
+    'username': "salwaroot",
+    'password': "Emploi@2024",
+    'topic': "ppe/detections"
+}
 
-# Initialisation du client MQTT avec un ID unique
-mqtt_client = mqtt.Client(client_id=f'python-mqtt-{random.randint(0, 1000)}')
-mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2)
-mqtt_client.tls_insecure_set(False)
-
-# Callback pour la connexion
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        print("Connecté au broker MQTT")
-    else:
-        print(f"Échec de connexion au broker MQTT, code: {rc}")
-
-mqtt_client.on_connect = on_connect
+# Initialisation du service MQTT
+mqtt_service = MQTTService(**MQTT_CONFIG)
 
 # Chargement du modèle YOLOv8
 model = YOLO('models/best.pt')
@@ -305,44 +297,57 @@ def detect():
     _, buffer = cv2.imencode('.jpg', annotated_frame)
     img_base64 = base64.b64encode(buffer).decode('utf-8')
     
-    # Sauvegarder dans la base de données
-    conn = sqlite3.connect('detections.db')
-    c = conn.cursor()
-    
-    # Générer un nom de fichier en base62
-    image_filename = generate_base62_filename()
-    image_path = os.path.join(DETECTIONS_FOLDER, image_filename)
-    success = cv2.imwrite(image_path, annotated_frame)
-    if success:
-        print(f"Image sauvegardée avec succès: {image_path}")
-    else:
-        print(f"Échec de la sauvegarde de l'image: {image_path}")
-    
-    c.execute('''INSERT INTO detections 
-                 (timestamp, total_persons, secured_persons, partially_secured, unsecured, image_path)
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (datetime.now().isoformat(), 
-               len(detections),
-               sum(1 for d in detections if d['label'] == "Securisee"),
-               sum(1 for d in detections if d['label'] == "Partiellement securisee"),
-               sum(1 for d in detections if d['label'] == "Non securisee"),
-               image_filename))  # Sauvegarder uniquement le nom du fichier
-    conn.commit()
-    conn.close()
-    
-    # Préparer la réponse
-    response_data = {
-        "timestamp": datetime.now().isoformat(),
-        "total_persons": len(detections),
-        "secured_persons": sum(1 for d in detections if d['label'] == "Securisee"),
-        "partially_secured": sum(1 for d in detections if d['label'] == "Partiellement Securisee"),
-        "unsecured": sum(1 for d in detections if d['label'] == "Non Securisee"),
-        "image": img_base64,
-        "detections": detections,
-        "is_secure": is_secure
-    }
-    
-    return jsonify(response_data)
+    try:
+        # Préparer les données pour MQTT et la base de données
+        detection_data = {
+            "timestamp": datetime.now().isoformat(),
+            "total_persons": len(detections),
+            "secured_persons": sum(1 for d in detections if d['label'] == "Securisee"),
+            "partially_secured": sum(1 for d in detections if d['label'] == "Partiellement Securisee"),
+            "unsecured": sum(1 for d in detections if d['label'] == "Non Securisee"),
+            "is_secure": is_secure,
+            "detections": detections
+        }
+        
+        # Publier via le service MQTT
+        mqtt_service.publish_detection(detection_data)
+        
+        # Sauvegarder dans la base de données
+        conn = sqlite3.connect('detections.db')
+        c = conn.cursor()
+        
+        # Générer un nom de fichier en base62
+        image_filename = generate_base62_filename()
+        image_path = os.path.join(DETECTIONS_FOLDER, image_filename)
+        success = cv2.imwrite(image_path, annotated_frame)
+        if success:
+            print(f"Image sauvegardée avec succès: {image_path}")
+        else:
+            print(f"Échec de la sauvegarde de l'image: {image_path}")
+        
+        c.execute('''INSERT INTO detections 
+                     (timestamp, total_persons, secured_persons, partially_secured, unsecured, image_path)
+                     VALUES (?, ?, ?, ?, ?, ?)''',
+                  (datetime.now().isoformat(), 
+                   len(detections),
+                   detection_data["secured_persons"],
+                   detection_data["partially_secured"],
+                   detection_data["unsecured"],
+                   image_filename))
+        conn.commit()
+        conn.close()
+        
+        # Préparer la réponse
+        response_data = {
+            **detection_data,
+            "image": img_base64
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logging.error(f"Erreur lors du traitement de l'image: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/stop-video')
 def stop_video():
@@ -407,32 +412,46 @@ def video_feed():
                     # Vérifier si 15 secondes se sont écoulées
                     current_time = time.time()
                     if current_time - last_save_time >= SAVE_INTERVAL:
-                        # Publier sur MQTT
-                        publish_to_mqtt(detections, is_secure)
-                        
-                        # Sauvegarder dans la base de données
                         try:
-                            conn = sqlite3.connect('detections.db')
-                            c = conn.cursor()
-                            image_filename = generate_base62_filename()
-                            image_path = os.path.join(DETECTIONS_FOLDER, image_filename)
-                            cv2.imwrite(image_path, annotated_frame)
+                            # Préparer les données
+                            detection_data = {
+                                "total_persons": len(detections),
+                                "secured_persons": sum(1 for d in detections if d['label'] == "Securisee"),
+                                "partially_secured": sum(1 for d in detections if d['label'] == "Partiellement Securisee"),
+                                "unsecured": sum(1 for d in detections if d['label'] == "Non Securisee"),
+                                "is_secure": is_secure,
+                                "detections": detections
+                            }
                             
-                            c.execute('''INSERT INTO detections 
-                                        (timestamp, total_persons, secured_persons, partially_secured, unsecured, image_path)
-                                        VALUES (?, ?, ?, ?, ?, ?)''',
-                                     (datetime.now().isoformat(), 
-                                      len(detections),
-                                      sum(1 for d in detections if d['label'] == "Securisee"),
-                                      sum(1 for d in detections if d['label'] == "Partiellement Securisee"),
-                                      sum(1 for d in detections if d['label'] == "Non Securisee"),
-                                      image_filename))
-                            conn.commit()
-                            conn.close()
-                            print("Données sauvegardées avec succès")
-                            last_save_time = current_time
+                            # Publier via le service MQTT
+                            mqtt_service.publish_detection(detection_data)
+                            
+                            # Sauvegarder dans la base de données
+                            try:
+                                conn = sqlite3.connect('detections.db')
+                                c = conn.cursor()
+                                image_filename = generate_base62_filename()
+                                image_path = os.path.join(DETECTIONS_FOLDER, image_filename)
+                                cv2.imwrite(image_path, annotated_frame)
+                                
+                                c.execute('''INSERT INTO detections 
+                                            (timestamp, total_persons, secured_persons, partially_secured, unsecured, image_path)
+                                            VALUES (?, ?, ?, ?, ?, ?)''',
+                                         (datetime.now().isoformat(), 
+                                          len(detections),
+                                          sum(1 for d in detections if d['label'] == "Securisee"),
+                                          sum(1 for d in detections if d['label'] == "Partiellement Securisee"),
+                                          sum(1 for d in detections if d['label'] == "Non Securisee"),
+                                          image_filename))
+                                conn.commit()
+                                conn.close()
+                                print("Données sauvegardées avec succès")
+                                last_save_time = current_time
+                            except Exception as e:
+                                print(f"Erreur lors de la sauvegarde en base de données: {e}")
+                            
                         except Exception as e:
-                            print(f"Erreur lors de la sauvegarde en base de données: {e}")
+                            logging.error(f"Erreur lors du traitement des détections: {e}")
                     
                     # Encoder et envoyer l'image
                     ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
