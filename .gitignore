@@ -1,0 +1,60 @@
+# Backend Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+.env
+
+# Base de données
+*.db
+detections.db
+
+# Dossier de détections
+backend/detections/*
+!backend/detections/.gitkeep
+
+# Modèles YOLOv8
+*.pt
+models/*
+!models/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# IDE et éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Fichiers temporaires
+*.log
+*.tmp
+*~
+
+# Fichiers média
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.avi
+*.mov
+!frontend/public/*.wav
+!frontend/public/*.mp3
+!frontend/public/favicon.ico
+
+# Exceptions pour les fichiers de test
+!test_images/*.jpg
+!test_images/*.png
