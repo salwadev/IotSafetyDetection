@@ -211,7 +211,7 @@ function App() {
       {!isSecure && (
           <div className="alert danger">
             <i className="fas fa-exclamation-triangle"></i>
-            ATTENTION: Personne non sécurisée détectée!
+            ATTENTION: 1 Personne non sécurisée détectée!
           </div>
         )}
       <main className="main-content">
@@ -235,26 +235,46 @@ function App() {
               />
             </div>
 
-<div className="current-detections">
-<h2>Détections en cours</h2>
-<ul className="detections-list">
-  {detections.map((detection, index) => (
-    <li key={index} className={`detection-item ${
-      detection.label === "Non Securisee" ? "unsafe" : 
-      detection.label === "Securisee" ? "safe" : ""
-    }`}>
-      <span className="detection-label">{detection.label}</span>
-      <span className="detection-confidence">
-        {(detection.confidence * 100).toFixed(2)}%
-      </span>
-    </li>
-  ))}
-</ul>
-</div>
+          <div className="current-detections">
+          <h2>Détections en cours</h2>
+          <ul className="detections-list">
+            {detections.map((detection, index) => (
+              <li key={index} className={`detection-item ${
+                detection.label === "Non Securisee" ? "unsafe" : 
+                detection.label === "Securisee" ? "safe" : ""
+              }`}>
+                <span className="detection-label">{detection.label}</span>
+                <span className="detection-confidence">
+                  1 Person
+                </span>
+              </li>
+            ))}
+          </ul>
+          </div>
             </>
           )}
         </div>
+        {mode === 'image' && imagePreview && (
+        <div className="statistics-panel">
+          <h2 className="white-color">Statistiques actuelles</h2>
+          <div className="stats-grid">
+            <div className="stat-item">
+              <span className="stat-label">Total Personnes</span>
+              <span className="stat-value">{statistics.total_persons}</span>
+            </div>
+            <div className="stat-item secure">
+              <span className="stat-label">Personnes Sécurisées</span>
+              <span className="stat-value">{statistics.secured_persons}</span>
+            </div>
+          
+            <div className="stat-item unsafe">
+              <span className="stat-label">Non Sécurisées</span>
+              <span className="stat-value">{statistics.unsecured}</span>
+            </div>
+          </div>
+        </div>
 
+        )}
         <div className="width-100">
          
 
@@ -349,27 +369,7 @@ function App() {
           </div>
         </div>
 
-        <div className="statistics-panel">
-          <h2>Statistiques actuelles</h2>
-          <div className="stats-grid">
-            <div className="stat-item">
-              <span className="stat-label">Total Personnes</span>
-              <span className="stat-value">{statistics.total_persons}</span>
-            </div>
-            <div className="stat-item secure">
-              <span className="stat-label">Personnes Sécurisées</span>
-              <span className="stat-value">{statistics.secured_persons}</span>
-            </div>
-            <div className="stat-item partial">
-              <span className="stat-label">Partiellement Sécurisées</span>
-              <span className="stat-value">{statistics.partially_secured}</span>
-            </div>
-            <div className="stat-item unsafe">
-              <span className="stat-label">Non Sécurisées</span>
-              <span className="stat-value">{statistics.unsecured}</span>
-            </div>
-          </div>
-        </div>
+     
       </main>
     </div>
   )

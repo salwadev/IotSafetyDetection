@@ -4,7 +4,7 @@ __pycache__/
 *.so
 venv/
 .env
-
+data/*/
 # Base de données
 *.db
 detections.db
